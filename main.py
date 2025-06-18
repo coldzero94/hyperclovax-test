@@ -1,128 +1,42 @@
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from transformers import AutoModelForCausalLM, AutoProcessor, AutoTokenizer
-import torch
-from typing import List, Union
-import requests
+from fastapi import FastAPI, UploadFile, File
 from PIL import Image
-from io import BytesIO
-import logging
+import torch
+import io
+from transformers import AutoModelForCausalLM, AutoProcessor, AutoTokenizer
 
-# Setup logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+app = FastAPI()
 
-app = FastAPI(title="HyperCLOVAX API", version="1.0.0")
-
-# Add CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Load model, tokenizer, processor
-MODEL_NAME = "naver-hyperclovax/HyperCLOVAX-SEED-Vision-Instruct-3B"
+# 모델 로딩
+model_name = "naver-hyperclovax/HyperCLOVAX-SEED-Vision-Instruct-3B"
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
-logger.info(f"Using device: {device}")
-logger.info(f"Loading model: {MODEL_NAME}")
+# trust_remote_code와 use_fast=False로 tokenizer 오류 방지
+model = AutoModelForCausalLM.from_pretrained(
+    model_name,
+    trust_remote_code=True
+).to(device)
 
-try:
-    model = AutoModelForCausalLM.from_pretrained(MODEL_NAME, trust_remote_code=True).to(device)
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, trust_remote_code=True)
-    processor = AutoProcessor.from_pretrained(MODEL_NAME, trust_remote_code=True)
-    logger.info("Model loaded successfully")
-except Exception as e:
-    logger.error(f"Failed to load model: {e}")
-    raise
+preprocessor = AutoProcessor.from_pretrained(model_name, trust_remote_code=True)
 
-# Define chat schema
-class ChatMessage(BaseModel):
-    role: str
-    content: Union[str, dict]
+tokenizer = AutoTokenizer.from_pretrained(
+    model_name,
+    trust_remote_code=True,
+    use_fast=False
+)
 
-class ChatRequest(BaseModel):
-    messages: List[ChatMessage]
+@app.post("/generate")
+async def generate(image: UploadFile = File(...), prompt: str = ""):
+    # 이미지 로딩
+    img = Image.open(io.BytesIO(await image.read())).convert("RGB")
 
-class ChatResponse(BaseModel):
-    response: str
+    # 전처리 및 tensor 변환
+    inputs = preprocessor(images=img, text=prompt, return_tensors="pt").to(device)
 
-@app.get("/")
-def root():
-    return {"message": "HyperCLOVAX API is running", "model": MODEL_NAME}
+    # 텍스트 생성
+    with torch.no_grad():
+        output_ids = model.generate(**inputs, max_new_tokens=256)
 
-@app.get("/health")
-def health():
-    return {"status": "healthy", "device": device}
+    # 결과 디코딩
+    response = tokenizer.decode(output_ids[0], skip_special_tokens=True)
 
-@app.post("/chat", response_model=ChatResponse)
-def chat(request: ChatRequest):
-    try:
-        # Apply chat template
-        chat = [msg.dict() for msg in request.messages]
-        input_ids = tokenizer.apply_chat_template(chat, return_tensors="pt", tokenize=True).to(device)
-
-        # Generate
-        with torch.no_grad():
-            output_ids = model.generate(
-                input_ids=input_ids,
-                max_new_tokens=128,
-                do_sample=True,
-                top_p=0.6,
-                temperature=0.5,
-                repetition_penalty=1.0,
-                pad_token_id=tokenizer.eos_token_id,
-            )
-        
-        decoded = tokenizer.batch_decode(output_ids, skip_special_tokens=True)[0]
-        # Extract only the new generated text
-        input_text = tokenizer.batch_decode(input_ids, skip_special_tokens=True)[0]
-        response_text = decoded[len(input_text):].strip()
-        
-        return ChatResponse(response=response_text)
-    except Exception as e:
-        logger.error(f"Error in chat endpoint: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/vlm-chat", response_model=ChatResponse)
-def vlm_chat(request: ChatRequest):
-    try:
-        chat = [msg.dict() for msg in request.messages]
-
-        # Load images/videos from URL
-        new_chat, all_images, is_video_list = processor.load_images_videos(chat)
-        preprocessed = processor(all_images, is_video_list=is_video_list)
-
-        input_ids = tokenizer.apply_chat_template(
-            new_chat, return_tensors="pt", tokenize=True, add_generation_prompt=True
-        ).to(device)
-
-        with torch.no_grad():
-            output_ids = model.generate(
-                input_ids=input_ids,
-                max_new_tokens=8192,
-                do_sample=True,
-                top_p=0.6,
-                temperature=0.5,
-                repetition_penalty=1.0,
-                pad_token_id=tokenizer.eos_token_id,
-                **preprocessed,
-            )
-        
-        decoded = tokenizer.batch_decode(output_ids, skip_special_tokens=True)[0]
-        # Extract only the new generated text
-        input_text = tokenizer.batch_decode(input_ids, skip_special_tokens=True)[0]
-        response_text = decoded[len(input_text):].strip()
-        
-        return ChatResponse(response=response_text)
-    except Exception as e:
-        logger.error(f"Error in vlm-chat endpoint: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    return {"response": response}
