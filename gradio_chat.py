@@ -21,7 +21,6 @@ demo = gr.ChatInterface(
     additional_inputs=[gr.Image(type="filepath", label="이미지 업로드 (선택)")],
     title="HyperCLOVAX Vision Chat (Streaming)",
     description="텍스트와 이미지를 입력하면 실시간으로 답변이 출력됩니다.",
-    streaming=True,
 )
 
 demo.launch() 
