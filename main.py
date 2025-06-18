@@ -6,18 +6,22 @@ from transformers import AutoModelForCausalLM, AutoProcessor, AutoTokenizer
 
 app = FastAPI()
 
-# 모델 로딩
+# 모델 정보
 model_name = "naver-hyperclovax/HyperCLOVAX-SEED-Vision-Instruct-3B"
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
-# trust_remote_code와 use_fast=False로 tokenizer 오류 방지
+# 모델 로딩
 model = AutoModelForCausalLM.from_pretrained(
     model_name,
     trust_remote_code=True
 ).to(device)
 
-preprocessor = AutoProcessor.from_pretrained(model_name, trust_remote_code=True)
+preprocessor = AutoProcessor.from_pretrained(
+    model_name,
+    trust_remote_code=True
+)
 
+# ❗ Fast tokenizer 비활성화 (중요!)
 tokenizer = AutoTokenizer.from_pretrained(
     model_name,
     trust_remote_code=True,
