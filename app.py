@@ -1,6 +1,4 @@
-# app.py
-
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, UploadFile, File, Form
 from transformers import AutoModelForCausalLM, AutoProcessor, AutoTokenizer
 import torch
 from PIL import Image
@@ -17,7 +15,7 @@ preprocessor = AutoProcessor.from_pretrained(model_name, trust_remote_code=True)
 tokenizer = AutoTokenizer.from_pretrained(model_name)
 
 @app.post("/infer")
-async def infer(prompt: str, image: UploadFile = File(None)):
+async def infer(prompt: str = Form(...), image: UploadFile = File(None)):
     image_input = None
     if image:
         image_bytes = await image.read()
