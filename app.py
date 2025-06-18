@@ -16,24 +16,30 @@ tokenizer = AutoTokenizer.from_pretrained(model_name)
 
 @app.post("/infer")
 async def infer(prompt: str = Form(...), image: UploadFile = File(None)):
+    # 1. Chat template 구성
+    chat = [
+        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "user", "content": prompt}
+    ]
+    input_ids = tokenizer.apply_chat_template(chat, return_tensors="pt", tokenize=True).to(device)
+
+    # 2. 이미지 처리 (있을 경우)
+    inputs = {"input_ids": input_ids}
     if image:
-        # 이미지 업로드 시 Vision + Text 모드
         image_bytes = await image.read()
         image_pil = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-        inputs = preprocessor(
-            images=image_pil,
-            text=prompt,
-            return_tensors="pt"
-        ).to(device)
-    else:
-        # 텍스트만 있을 때는 None을 명시
-        inputs = preprocessor(
-            images=None,
-            text=prompt,
-            return_tensors="pt"
-        ).to(device)
+        pixel_values = preprocessor(image_pil, return_tensors="pt").pixel_values.to(device)
+        inputs["pixel_values"] = pixel_values
 
-    outputs = model.generate(**inputs, max_new_tokens=256)
-    response = tokenizer.decode(outputs[0], skip_special_tokens=True)
+    # 3. 생성
+    output_ids = model.generate(
+        **inputs,
+        max_new_tokens=256,
+        do_sample=True,
+        top_p=0.6,
+        temperature=0.5,
+        repetition_penalty=1.0,
+    )
 
+    response = tokenizer.decode(output_ids[0], skip_special_tokens=True)
     return {"result": response}
