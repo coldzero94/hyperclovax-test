@@ -16,16 +16,22 @@ tokenizer = AutoTokenizer.from_pretrained(model_name)
 
 @app.post("/infer")
 async def infer(prompt: str = Form(...), image: UploadFile = File(None)):
-    image_input = None
     if image:
+        # 이미지 업로드 시 Vision + Text 모드
         image_bytes = await image.read()
         image_pil = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-        image_input = preprocessor(images=image_pil, return_tensors="pt").to(device)
-
-    inputs = preprocessor(text=prompt, return_tensors="pt").to(device)
-    
-    if image_input:
-        inputs.update(image_input)
+        inputs = preprocessor(
+            images=image_pil,
+            text=prompt,
+            return_tensors="pt"
+        ).to(device)
+    else:
+        # 텍스트만 있을 때는 None을 명시
+        inputs = preprocessor(
+            images=None,
+            text=prompt,
+            return_tensors="pt"
+        ).to(device)
 
     outputs = model.generate(**inputs, max_new_tokens=256)
     response = tokenizer.decode(outputs[0], skip_special_tokens=True)
