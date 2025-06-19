@@ -29,10 +29,20 @@ async def infer(prompt: str = Form(...), image: UploadFile = File(None)):
     # 2. 이미지 처리 (있을 경우)
     inputs = {"input_ids": input_ids}
     if image:
-        image_bytes = await image.read()
-        image_pil = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-        pixel_values = preprocessor(image_pil, return_tensors="pt").pixel_values.to(device)
-        inputs["pixel_values"] = pixel_values
+        try:
+            image_bytes = await image.read()
+            print(f"이미지 파일 크기: {len(image_bytes)} bytes, 타입: {image.content_type}")
+            
+            if len(image_bytes) == 0:
+                print("⚠️ 빈 이미지 파일이 업로드됨")
+            else:
+                image_pil = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+                pixel_values = preprocessor(image_pil, return_tensors="pt").pixel_values.to(device)
+                inputs["pixel_values"] = pixel_values
+                print("✅ 이미지 처리 완료")
+        except Exception as e:
+            print(f"❌ 이미지 처리 오류: {str(e)}")
+            # 이미지 처리 실패 시에도 텍스트 응답은 계속 진행
 
     # 3. 생성
     output_ids = model.generate(
@@ -56,10 +66,20 @@ async def infer_stream(prompt: str = Form(...), image: UploadFile = File(None)):
     input_ids = tokenizer.apply_chat_template(chat, return_tensors="pt", tokenize=True).to(device)
     inputs = {"input_ids": input_ids}
     if image:
-        image_bytes = await image.read()
-        image_pil = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-        pixel_values = preprocessor(image_pil, return_tensors="pt").pixel_values.to(device)
-        inputs["pixel_values"] = pixel_values
+        try:
+            image_bytes = await image.read()
+            print(f"스트림 - 이미지 파일 크기: {len(image_bytes)} bytes, 타입: {image.content_type}")
+            
+            if len(image_bytes) == 0:
+                print("⚠️ 스트림 - 빈 이미지 파일이 업로드됨")
+            else:
+                image_pil = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+                pixel_values = preprocessor(image_pil, return_tensors="pt").pixel_values.to(device)
+                inputs["pixel_values"] = pixel_values
+                print("✅ 스트림 - 이미지 처리 완료")
+        except Exception as e:
+            print(f"❌ 스트림 - 이미지 처리 오류: {str(e)}")
+            # 이미지 처리 실패 시에도 텍스트 응답은 계속 진행
 
     streamer = TextIteratorStreamer(tokenizer, skip_special_tokens=True)
     generation_kwargs = dict(

@@ -11,8 +11,13 @@ def stream_chat_api(message, history, image=None):
     
     data = {"prompt": message}
     files = {}
-    if image is not None:
-        files["image"] = ("image.png", image, "image/png")
+    if image is not None and image.strip():
+        try:
+            with open(image, 'rb') as img_file:
+                files["image"] = ("image.jpg", img_file.read(), "image/jpeg")
+        except Exception as e:
+            print(f"이미지 파일 읽기 오류: {e}")
+            files = {}
     
     # 스트림 응답을 받아서 yield로 반환
     try:
