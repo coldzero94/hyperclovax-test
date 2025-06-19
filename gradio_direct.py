@@ -23,11 +23,11 @@ class HyperCLOVAXHandler:
 
     def stream_chat(self, message, history, image=None):
         try:
+            # 1. Chat 템플릿 구성
             chat = [{"role": "system", "content": "You are a helpful assistant."}]
-            for user_msg, assistant_msg in history:
-                chat.append({"role": "user", "content": user_msg})
-                if assistant_msg:
-                    chat.append({"role": "assistant", "content": assistant_msg})
+            for turn in history:
+                if turn["role"] != "system":
+                    chat.append(turn)
             chat.append({"role": "user", "content": message})
 
             input_ids = self.tokenizer.apply_chat_template(
@@ -65,23 +65,22 @@ class HyperCLOVAXHandler:
             partial = ""
             for new_text in streamer:
                 partial += new_text
-                yield partial
+                yield {"role": "assistant", "content": partial}
 
         except Exception as e:
-            yield f"❌ Error: {str(e)}"
+            yield {"role": "assistant", "content": f"❌ Error: {str(e)}"}
 
 def main():
     handler = HyperCLOVAXHandler()
 
-    with gr.Blocks(title="🤗 HyperCLOVAX Direct Chat", fill_height=True) as demo:
+    with gr.Blocks(title="🤗 HyperCLOVAX Chat", fill_height=True) as demo:
         gr.Markdown(
-            "<h2>🤗 HyperCLOVAX Direct Chat (No API) 🤗</h2>"
-            "<h3>Gradio에서 직접 transformers 모델 사용!</h3>"
-            "<h3>✨ FastAPI 없이 직접 연결된 채팅 인터페이스 ✨</h3>"
+            "<h2>🤗 HyperCLOVAX Direct Chat</h2>"
+            "<p>Gradio에서 직접 transformers 모델을 사용하는 실시간 채팅 데모입니다.</p>"
         )
 
-        chatbot = gr.Chatbot(render_markdown=True, show_copy_button=True)
-        state = gr.State([])
+        chatbot = gr.Chatbot(type="messages", show_copy_button=True)
+        state = gr.State([])  # history as list of {"role": ..., "content": ...}
 
         with gr.Row():
             txt = gr.Textbox(
@@ -98,9 +97,9 @@ def main():
             retry_btn = gr.Button("🔄 재시도")
             clear_btn = gr.Button("🗑️ 대화 지우기")
 
-        def user_submit(message, history, image_path):
-            history = history + [[message, None]]
-            return "", history, handler.stream_chat(message, history, image_path)
+        def user_submit(message, history, img_path):
+            history = history + [{"role": "user", "content": message}]
+            return "", history, handler.stream_chat(message, history, img_path)
 
         send_btn.click(
             fn=user_submit,
@@ -108,13 +107,13 @@ def main():
             outputs=[txt, state, chatbot]
         )
 
-        def retry_last(history, image_path):
+        def retry_last(history, img_path):
             if not history:
                 return history, chatbot
-            last_input = history[-1][0]
-            history = history[:-1]
-            history.append([last_input, None])
-            return history, handler.stream_chat(last_input, history, image_path)
+            last_input = next((msg["content"] for msg in reversed(history) if msg["role"] == "user"), "")
+            trimmed_history = [msg for msg in history if msg["role"] != "assistant"]
+            trimmed_history.append({"role": "user", "content": last_input})
+            return trimmed_history, handler.stream_chat(last_input, trimmed_history, img_path)
 
         retry_btn.click(
             fn=retry_last,
