@@ -23,7 +23,8 @@ class HyperCLOVAXHandler:
 
     def stream_chat(self, message, history, image=None):
         try:
-            # 1. Chat 템플릿 구성
+            print(f"[🔁 생성 시작] Prompt: {message}, image: {bool(image)}")
+
             chat = [{"role": "system", "content": "You are a helpful assistant."}]
             for turn in history:
                 if turn["role"] != "system":
@@ -43,8 +44,7 @@ class HyperCLOVAXHandler:
                 inputs["pixel_values"] = pixel_values
 
             streamer = TextIteratorStreamer(
-                self.tokenizer, 
-                skip_special_tokens=True
+                self.tokenizer, skip_special_tokens=True
             )
             generation_kwargs = dict(
                 **inputs,
@@ -57,8 +57,7 @@ class HyperCLOVAXHandler:
             )
 
             thread = threading.Thread(
-                target=self.model.generate, 
-                kwargs=generation_kwargs
+                target=self.model.generate, kwargs=generation_kwargs
             )
             thread.start()
 
@@ -76,11 +75,11 @@ def main():
     with gr.Blocks(title="🤗 HyperCLOVAX Chat", fill_height=True) as demo:
         gr.Markdown(
             "<h2>🤗 HyperCLOVAX Direct Chat</h2>"
-            "<p>Gradio에서 직접 transformers 모델을 사용하는 실시간 채팅 데모입니다.</p>"
+            "<p>Gradio에서 직접 HuggingFace 모델을 사용하는 실시간 채팅 데모입니다.</p>"
         )
 
         chatbot = gr.Chatbot(type="messages", show_copy_button=True)
-        state = gr.State([])  # history as list of {"role": ..., "content": ...}
+        state = gr.State([])  # 메시지 리스트
 
         with gr.Row():
             txt = gr.Textbox(
@@ -97,6 +96,7 @@ def main():
             retry_btn = gr.Button("🔄 재시도")
             clear_btn = gr.Button("🗑️ 대화 지우기")
 
+        # 사용자 입력 처리
         def user_submit(message, history, img_path):
             history = history + [{"role": "user", "content": message}]
             return "", history, handler.stream_chat(message, history, img_path)
@@ -107,6 +107,13 @@ def main():
             outputs=[txt, state, chatbot]
         )
 
+        txt.submit(  # 엔터 키로도 전송
+            fn=user_submit,
+            inputs=[txt, state, image],
+            outputs=[txt, state, chatbot]
+        )
+
+        # 재시도
         def retry_last(history, img_path):
             if not history:
                 return history, chatbot
@@ -121,6 +128,7 @@ def main():
             outputs=[state, chatbot]
         )
 
+        # 대화 지우기
         clear_btn.click(
             lambda: ([], []),
             outputs=[chatbot, state]
